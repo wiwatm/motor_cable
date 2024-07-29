@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>คำนวณขนาดสายไฟสำหรับมอเตอร์</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        label, input, select, button {
+            display: block;
+            margin-bottom: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+        }
+        #result {
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>คำนวณขนาดสายไฟสำหรับมอเตอร์</h1>
+    <h1>draft by wiwatm 11.07.2024</h1>
+    <form id="motorWireCalculator">
+        <label for="power">กำลังมอเตอร์ (kW):</label>
+        <input type="number" id="power" min="0.25" max="2000" step="0.01" required>
+
+        <label for="phases">จำนวนเฟส:</label>
+        <select id="phases">
+            <option value="1">1 เฟส</option>
+            <option value="3">3 เฟส</option>
+        </select>
+
+        <label for="powerFactor">Power Factor:</label>
+        <input type="number" id="powerFactor" min="0" max="1" step="0.01" value="0.8" required>
+
+        <label for="length">ความยาวสายไฟ (m):</label>
+        <input type="number" id="length" min="1" required>
+
+        <label for="wireType">ชนิดสายไฟ:</label>
+        <select id="wireType">
+            <option value="copper">ทองแดง</option>
+            <option value="aluminum">อลูมิเนียม</option>
+        </select>
+
+        <label for="wiresPerPhase">จำนวนสายไฟต่อเฟส:</label>
+        <input type="number" id="wiresPerPhase" min="1" value="1" required>
+
+        <label for="voltage">แรงดันไฟฟ้า (V):</label>
+        <input type="number" id="voltage" value="380" required>
+
+        <button type="submit">คำนวณ</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('motorWireCalculator').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const power = parseFloat(document.getElementById('power').value);
+            const phases = parseInt(document.getElementById('phases').value);
+            const powerFactor = parseFloat(document.getElementById('powerFactor').value);
+            const length = parseFloat(document.getElementById('length').value);
+            const wireType = document.getElementById('wireType').value;
+            const wiresPerPhase = parseInt(document.getElementById('wiresPerPhase').value);
+            const voltage = parseFloat(document.getElementById('voltage').value);
+
+            // คำนวณกระแส
+            let current;
+            if (phases === 1) {
+                current = (power * 1000) / (voltage * powerFactor);
+            } else {
+                current = (power * 1000) / (Math.sqrt(3) * voltage * powerFactor);
+            }
+
+            // คำนวณขนาดสายไฟ
+            let wireSize = calculateWireSize(current, length, wireType, wiresPerPhase, phases, voltage);
+
+            // คำนวณ Voltage Drop
+            let voltageDrop = calculateVoltageDrop(current, length, wireSize, wireType, phases, voltage);
+
+            document.getElementById('result').innerHTML = `
+                กระแสไฟฟ้า: ${current.toFixed(2)} A<br>
+                ขนาดสายไฟที่แนะนำ: ${wireSize} mm²<br>
+                Voltage Drop: ${voltageDrop.toFixed(2)}%<br><br>
+                <h3>อ้างอิงตารางสายไฟและกระแสไฟฟ้า</h3>
+                <table>
+                    <tr>
+                        <th>ขนาดสายไฟ (mm²)</th>
+                        <th>กระแสไฟฟ้าสูงสุด (A) - ทองแดง</th>
+                        <th>กระแสไฟฟ้าสูงสุด (A) - อลูมิเนียม</th>
+                    </tr>
+                    ${generateWireSizeTable()}
+                </table>
+            `;
+        });
+
+        function calculateWireSize(current, length, wireType, wiresPerPhase, phases, voltage) {
+            const wireSizes = [1.5, 2.5, 4, 6, 10, 16, 25, 35, 50, 70, 95, 120, 150, 185, 240, 300, 400, 500, 630];
+            const currentRatings = {
+                copper: [18, 25, 34, 43, 60, 80, 106, 131, 159, 202, 245, 284, 330, 381, 468, 545, 667, 789, 933],
+                aluminum: [14, 20, 27, 35, 48, 64, 85, 105, 128, 162, 197, 228, 265, 306, 376, 438, 536, 633, 750]
+            };
+
+            let ratings = currentRatings[wireType];
+            let adjustedCurrent = current / wiresPerPhase;
+
+            for (let i = 0; i < wireSizes.length; i++) {
+                let size = wireSizes[i];
+                if (adjustedCurrent <= ratings[i]) {
+                    // ตรวจสอบ voltage drop
+                    let voltageDrop = calculateVoltageDrop(current, length, size, wireType, phases, voltage);
+                    if (voltageDrop <= 3) {
+                        return size;
+                    }
+                }
+            }
+            return 'มากกว่า 630';
+        }
+
+        function calculateVoltageDrop(current, length, wireSize, wireType, phases, voltage) {
+            const resistivity = wireType === 'copper' ? 0.0176 : 0.0286;  // Ω·mm²/m
+            const resistance = (resistivity * length) / wireSize;
+            let voltageDrop;
+
+            if (phases === 1) {
+                voltageDrop = (2 * current * resistance) / voltage * 100;
+            } else {
+                voltageDrop = (Math.sqrt(3) * current * resistance) / voltage * 100;
+            }
+
+            return voltageDrop;
+        }
+
+        function generateWireSizeTable() {
+            const wireSizes = [1.5, 2.5, 4, 6, 10, 16, 25, 35, 50, 70, 95, 120, 150, 185, 240, 300, 400, 500, 630];
+            const currentRatings = {
+                copper: [18, 25, 34, 43, 60, 80, 106, 131, 159, 202, 245, 284, 330, 381, 468, 545, 667, 789, 933],
+                aluminum: [14, 20, 27, 35, 48, 64, 85, 105, 128, 162, 197, 228, 265, 306, 376, 438, 536, 633, 750]
+            };
+
+            let tableRows = '';
+            for (let i = 0; i < wireSizes.length; i++) {
+                tableRows += `
+                    <tr>
+                        <td>${wireSizes[i]}</td>
+                        <td>${currentRatings.copper[i]}</td>
+                        <td>${currentRatings.aluminum[i]}</td>
+                    </tr>
+                `;
+            }
+            return tableRows;
+        }
+    </script>
+</body>
+</html>
